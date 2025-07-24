@@ -30,11 +30,7 @@ def login():
             st.error("❌ Incorrect credentials.")
 
 def auth():
-    if st.session_state.logged_in:
-        return True
-    else:
-        login()
-        return False
+    return st.session_state.logged_in if st.session_state.logged_in else login() or False
 
 # --- MAIN APP ---
 def main_app():
@@ -63,7 +59,6 @@ def attendance_page():
         else:
             st.stop()
 
-    # Load saved members list
     members_df = pd.read_csv(MEMBER_FILE)
 
     # Update option
@@ -86,18 +81,19 @@ def attendance_page():
         output = group_df[["Membership Number", "Full Name", "Group"]].copy()
         output.insert(0, "Date", sunday)
         output["Status"] = group_df["Status"]
-        st.session_state.attendance_data.append(output)
 
-        # Save to all_attendance.csv
         if os.path.exists(MASTER_FILE):
             master_df = pd.read_csv(MASTER_FILE)
-            master_df = pd.concat([master_df, output], ignore_index=True)
+            master_df["Date"] = pd.to_datetime(master_df["Date"])
         else:
-            master_df = output.copy()
+            master_df = pd.DataFrame(columns=["Date", "Membership Number", "Full Name", "Group", "Status"])
 
-        master_df.to_csv(MASTER_FILE, index=False)
+        sunday_str = pd.to_datetime(sunday)
+        master_df = master_df[~((master_df["Date"] == sunday_str) & (master_df["Group"] == group))]
+        updated_df = pd.concat([master_df, output], ignore_index=True)
+        updated_df.to_csv(MASTER_FILE, index=False)
 
-        st.success(f"✅ Group {group} attendance saved ({output['Status'].value_counts().to_dict()})")
+        st.success(f"✅ Saved. Replaced existing attendance for {group} on {sunday}")
 
 # --- PAGE 2: HISTORY VIEWER ---
 def history_page():
@@ -124,7 +120,7 @@ def history_page():
         mime="text/csv"
     )
 
-# --- PAGE 3: DASHBOARD ---
+# --- PAGE 3: ADVANCED DASHBOARD ---
 def dashboard_page():
     st.header("📊 Attendance Dashboard")
 
@@ -135,22 +131,54 @@ def dashboard_page():
     df = pd.read_csv(MASTER_FILE)
     df["Date"] = pd.to_datetime(df["Date"])
 
-    latest_date = df["Date"].max().date()
-    latest_data = df[df["Date"].dt.date == latest_date]
+    st.markdown("### 🔎 Filter Attendance Records")
 
-    st.subheader(f"🗓️ Latest Attendance: {latest_date}")
-    group_summary = latest_data.groupby("Group")["Status"].value_counts().unstack().fillna(0)
-    group_summary["% Present"] = (group_summary["Present"] / group_summary.sum(axis=1) * 100).round(1)
+    col1, col2 = st.columns(2)
+    with col1:
+        date_filter = st.date_input("📅 Specific Date", value=df["Date"].max().date())
+    with col2:
+        date_range = st.date_input("📆 Date Range", value=[df["Date"].min().date(), df["Date"].max().date()])
 
-    st.dataframe(group_summary)
+    group_options = sorted(df["Group"].dropna().unique())
+    selected_group = st.selectbox("📂 Filter by Group", options=["All"] + group_options)
 
-    st.subheader("📈 Member Consistency (Last 4 Weeks)")
-    last_4 = df[df["Date"] >= df["Date"].max() - pd.Timedelta(weeks=4)]
-    streaks = last_4.groupby("Full Name")["Status"].apply(lambda s: (s == "Present").sum())
-    top_absent = streaks[streaks < 2].sort_values()
-    if not top_absent.empty:
-        st.write("Members present less than 2x in last 4 weeks:")
-        st.dataframe(top_absent)
+    person_options = sorted(df["Full Name"].dropna().unique())
+    selected_person = st.selectbox("🙍 Filter by Member", options=["All"] + person_options)
+
+    # --- Apply Filters ---
+    filtered_df = df.copy()
+
+    if date_filter:
+        filtered_df = filtered_df[filtered_df["Date"].dt.date == date_filter]
+
+    if date_range and len(date_range) == 2:
+        start, end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
+        filtered_df = filtered_df[(filtered_df["Date"] >= start) & (filtered_df["Date"] <= end)]
+
+    if selected_group != "All":
+        filtered_df = filtered_df[filtered_df["Group"] == selected_group]
+
+    if selected_person != "All":
+        filtered_df = filtered_df[filtered_df["Full Name"] == selected_person]
+
+    # --- Summary ---
+    st.markdown("### 📊 Summary Table")
+    if filtered_df.empty:
+        st.warning("No data for selected filters.")
+    else:
+        summary = filtered_df.groupby(["Date", "Group"])["Status"].value_counts().unstack().fillna(0)
+        summary["% Present"] = (summary.get("Present", 0) / summary.sum(axis=1) * 100).round(1)
+        st.dataframe(summary)
+
+        with st.expander("📥 View Raw Data"):
+            st.dataframe(filtered_df)
+
+        st.download_button(
+            label="⬇️ Download Filtered Data",
+            data=filtered_df.to_csv(index=False).encode("utf-8"),
+            file_name="filtered_attendance.csv",
+            mime="text/csv"
+        )
 
 # --- RUN ---
 if auth():
