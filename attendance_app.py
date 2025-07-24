@@ -39,39 +39,45 @@ def attendance_page():
     group_df = members_df[members_df["Group"] == group].copy()
     present = st.multiselect("Select Present Members:", group_df["Full Name"].tolist())
 
-    # 🔄 Check for duplicates BEFORE generating attendance DataFrame
-    if os.path.exists(MASTER_FILE):
-        master_df = pd.read_csv(MASTER_FILE)
-        master_df["Date"] = pd.to_datetime(master_df["Date"])
-    else:
-        master_df = pd.DataFrame(columns=["Date", "Membership Number", "Full Name", "Group", "Status"])
+    if st.button("✅ Submit Group Attendance"):
+        if not present:
+            st.warning("⚠️ Please select at least one member as present before submitting.")
+            return
 
-    sunday_dt = pd.to_datetime(sunday)
+        # --- Load master attendance file ---
+        if os.path.exists(MASTER_FILE):
+            master_df = pd.read_csv(MASTER_FILE)
+            master_df["Date"] = pd.to_datetime(master_df["Date"])
+        else:
+            master_df = pd.DataFrame(columns=["Date", "Membership Number", "Full Name", "Group", "Status"])
 
-    duplicate_names = []
-    for name in present:
-        is_duplicate = (
-            (master_df["Date"] == sunday_dt) &
-            (master_df["Full Name"] == name) &
-            (master_df["Group"] == group)
-        ).any()
-        if is_duplicate:
-            duplicate_names.append(name)
+        sunday_dt = pd.to_datetime(sunday)
 
-    if duplicate_names:
-        st.error(f"⚠️ These member(s) already have attendance for {sunday} in {group}: {', '.join(duplicate_names)}")
-        return
+        # --- Check for duplicates ONLY in selected names ---
+        duplicate_names = []
+        for name in present:
+            is_duplicate = (
+                (master_df["Date"] == sunday_dt) &
+                (master_df["Full Name"] == name) &
+                (master_df["Group"] == group)
+            ).any()
+            if is_duplicate:
+                duplicate_names.append(name)
 
-    # ✅ No duplicates: continue
-    group_df["Status"] = group_df["Full Name"].apply(lambda name: "Present" if name in present else "Absent")
-    output = group_df[["Membership Number", "Full Name", "Group"]].copy()
-    output.insert(0, "Date", sunday)
-    output["Status"] = group_df["Status"]
+        if duplicate_names:
+            st.error(f"⚠️ These member(s) already have attendance for {sunday} in {group}: {', '.join(duplicate_names)}")
+            return
 
-    master_df = master_df[~((master_df["Date"] == sunday_dt) & (master_df["Group"] == group))]
-    updated_df = pd.concat([master_df, output], ignore_index=True)
-    updated_df.to_csv(MASTER_FILE, index=False)
-    st.success(f"✅ Attendance saved for {group} on {sunday}")
+        # --- Save attendance ---
+        group_df["Status"] = group_df["Full Name"].apply(lambda name: "Present" if name in present else "Absent")
+        output = group_df[["Membership Number", "Full Name", "Group"]].copy()
+        output.insert(0, "Date", sunday)
+        output["Status"] = group_df["Status"]
+
+        master_df = master_df[~((master_df["Date"] == sunday_dt) & (master_df["Group"] == group))]
+        updated_df = pd.concat([master_df, output], ignore_index=True)
+        updated_df.to_csv(MASTER_FILE, index=False)
+        st.success(f"✅ Attendance saved for {group} on {sunday}")
 
 # --- PAGE 2: HISTORY ---
 def history_page():
