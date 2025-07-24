@@ -44,6 +44,11 @@ def attendance_page():
             st.warning("⚠️ Please select at least one member as present before submitting.")
             return
 
+        # Clean date for consistency
+        sunday_str = pd.to_datetime(sunday).strftime("%Y-%m-%d")
+        sunday_dt = pd.to_datetime(sunday_str)
+
+        # Load attendance file
         if os.path.exists(MASTER_FILE):
             master_df = pd.read_csv(MASTER_FILE)
             master_df["Date"] = pd.to_datetime(master_df["Date"], errors="coerce")
@@ -51,8 +56,7 @@ def attendance_page():
         else:
             master_df = pd.DataFrame(columns=["Date", "Membership Number", "Full Name", "Group", "Status"])
 
-        sunday_dt = pd.to_datetime(sunday)
-
+        # Check duplicates
         duplicate_names = []
         for name in present:
             is_duplicate = (
@@ -64,18 +68,19 @@ def attendance_page():
                 duplicate_names.append(name)
 
         if duplicate_names:
-            st.error(f"⚠️ These member(s) already have attendance for {sunday} in {group}: {', '.join(duplicate_names)}")
+            st.error(f"⚠️ These member(s) already have attendance for {sunday_str} in {group}: {', '.join(duplicate_names)}")
             return
 
+        # Build and save
         group_df["Status"] = group_df["Full Name"].apply(lambda name: "Present" if name in present else "Absent")
         output = group_df[["Membership Number", "Full Name", "Group"]].copy()
-        output.insert(0, "Date", sunday)
+        output.insert(0, "Date", sunday_str)
         output["Status"] = group_df["Status"]
 
         master_df = master_df[~((master_df["Date"] == sunday_dt) & (master_df["Group"] == group))]
         updated_df = pd.concat([master_df, output], ignore_index=True)
         updated_df.to_csv(MASTER_FILE, index=False)
-        st.success(f"✅ Attendance saved for {group} on {sunday}")
+        st.success(f"✅ Attendance saved for {group} on {sunday_str}")
 
 # --- PAGE 2: HISTORY ---
 def history_page():
@@ -86,6 +91,7 @@ def history_page():
         return
 
     df = pd.read_csv(MASTER_FILE)
+    df["Date"] = df["Date"].astype(str).str.strip()
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df[df["Date"].notnull()]
 
@@ -117,6 +123,7 @@ def dashboard_page():
         return
 
     df = pd.read_csv(MASTER_FILE)
+    df["Date"] = df["Date"].astype(str).str.strip()
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df[df["Date"].notnull()]
 
