@@ -54,16 +54,20 @@ def attendance_page():
 
         sunday_dt = pd.to_datetime(sunday)
 
-        # 🛡 Check if member is already marked for this date
+        # ✅ FIXED: Check duplicates only for the same group + date + name
         duplicate_names = []
         for name in output["Full Name"]:
-            if ((master_df["Date"] == sunday_dt) & (master_df["Full Name"] == name)).any():
+            is_duplicate = (
+                (master_df["Date"] == sunday_dt) &
+                (master_df["Full Name"] == name) &
+                (master_df["Group"] == group)
+            ).any()
+            if is_duplicate:
                 duplicate_names.append(name)
 
         if duplicate_names:
-            st.error(f"⚠️ These member(s) already have attendance for {sunday}: {', '.join(duplicate_names)}")
+            st.error(f"⚠️ These member(s) already have attendance for {sunday} in {group}: {', '.join(duplicate_names)}")
         else:
-            # ✅ Safe to save
             master_df = master_df[~((master_df["Date"] == sunday_dt) & (master_df["Group"] == group))]
             updated_df = pd.concat([master_df, output], ignore_index=True)
             updated_df.to_csv(MASTER_FILE, index=False)
