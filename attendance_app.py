@@ -54,9 +54,9 @@ def attendance_page():
 
         sunday_dt = pd.to_datetime(sunday)
 
-        # ✅ FIXED: Check duplicates only for the same group + date + name
+        # ✅ Only check selected present names
         duplicate_names = []
-        for name in output["Full Name"]:
+        for name in present:
             is_duplicate = (
                 (master_df["Date"] == sunday_dt) &
                 (master_df["Full Name"] == name) &
@@ -184,5 +184,5 @@ def admin_page():
         else:
             st.info("Nothing to delete.")
 
-# --- RUN ---
+# --- RUN APP ---
 main_app()
