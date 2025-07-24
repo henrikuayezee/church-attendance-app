@@ -6,13 +6,11 @@ import plotly.express as px
 
 st.set_page_config("Church Attendance", layout="wide")
 
-# --- FILE PATHS ---
 MEMBER_FILE = "members.csv"
 MASTER_FILE = "all_attendance.csv"
 EXPORT_DIR = "exports"
 os.makedirs(EXPORT_DIR, exist_ok=True)
 
-# --- MAIN APP ---
 def main_app():
     st.sidebar.title("📂 Navigation")
     page = st.sidebar.radio("Go to", ["📝 Mark Attendance", "📅 View History", "📊 Dashboard", "⚙️ Admin"])
@@ -26,7 +24,7 @@ def main_app():
     elif page == "⚙️ Admin":
         admin_page()
 
-# --- PAGE 1: MARK ATTENDANCE ---
+# --- PAGE 1: ATTENDANCE ---
 def attendance_page():
     st.header("📝 Mark Attendance")
 
@@ -54,13 +52,22 @@ def attendance_page():
         else:
             master_df = pd.DataFrame(columns=["Date", "Membership Number", "Full Name", "Group", "Status"])
 
-        # Overwrite existing data for same group + date
-        master_df = master_df[~((master_df["Date"] == pd.to_datetime(sunday)) & (master_df["Group"] == group))]
+        sunday_dt = pd.to_datetime(sunday)
 
-        updated_df = pd.concat([master_df, output], ignore_index=True)
-        updated_df.to_csv(MASTER_FILE, index=False)
+        # 🛡 Check if member is already marked for this date
+        duplicate_names = []
+        for name in output["Full Name"]:
+            if ((master_df["Date"] == sunday_dt) & (master_df["Full Name"] == name)).any():
+                duplicate_names.append(name)
 
-        st.success(f"✅ Attendance saved for {group} on {sunday}")
+        if duplicate_names:
+            st.error(f"⚠️ These member(s) already have attendance for {sunday}: {', '.join(duplicate_names)}")
+        else:
+            # ✅ Safe to save
+            master_df = master_df[~((master_df["Date"] == sunday_dt) & (master_df["Group"] == group))]
+            updated_df = pd.concat([master_df, output], ignore_index=True)
+            updated_df.to_csv(MASTER_FILE, index=False)
+            st.success(f"✅ Attendance saved for {group} on {sunday}")
 
 # --- PAGE 2: HISTORY ---
 def history_page():
@@ -130,31 +137,27 @@ def dashboard_page():
         st.warning("No data for selected filters.")
         return
 
-    # --- Summary Table ---
     st.subheader("📋 Summary Table")
     summary = filtered_df.groupby(["Date", "Group"])["Status"].value_counts().unstack().fillna(0)
     summary["Total"] = summary.sum(axis=1)
     summary["% Present"] = (summary.get("Present", 0) / summary["Total"] * 100).round(1)
     st.dataframe(summary)
 
-    # --- Graphs ---
     st.subheader("📊 Visual Charts")
 
-    # Bar chart: % Present per group
     chart_df = summary.reset_index()
     if "Present" not in chart_df.columns:
         chart_df["Present"] = 0
     fig1 = px.bar(chart_df, x="Group", y="% Present", color="Group", title="% Present by Group")
     st.plotly_chart(fig1, use_container_width=True)
 
-    # Line chart: Group attendance over time
     time_df = filtered_df.groupby(["Date", "Group"])["Status"].value_counts().unstack().fillna(0).reset_index()
     if "Present" not in time_df.columns:
         time_df["Present"] = 0
     fig2 = px.line(time_df, x="Date", y="Present", color="Group", title="Attendance Over Time")
     st.plotly_chart(fig2, use_container_width=True)
 
-# --- PAGE 4: ADMIN TOOLS ---
+# --- PAGE 4: ADMIN ---
 def admin_page():
     st.header("⚙️ Admin Panel")
 
