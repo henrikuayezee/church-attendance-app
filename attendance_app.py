@@ -92,15 +92,14 @@ def attendance_page():
             master_df = pd.read_csv(MASTER_FILE)
             st.write(f"📊 Total records in file: {len(master_df)}")
             
-            # Show unique dates in file
-            master_df["Date"] = pd.to_datetime(master_df["Date"], errors="coerce")
+            # FIX: Normalize dates for comparison
+            master_df["Date"] = pd.to_datetime(master_df["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
             valid_dates = master_df[master_df["Date"].notnull()]
-            unique_dates = valid_dates["Date"].dt.date.unique()
+            unique_dates = valid_dates["Date"].unique()
             st.write(f"📅 Unique dates in file: {len(unique_dates)}")
             
-            sunday_dt = pd.to_datetime(sunday_str)
             existing = master_df[
-                (master_df["Date"] == sunday_dt) & 
+                (master_df["Date"] == sunday_str) & 
                 (master_df["Group"] == group)
             ]
             existing_attendance = existing["Full Name"].tolist()
@@ -126,7 +125,7 @@ def attendance_page():
         # Create the new records
         new_present_df = group_df[group_df["Full Name"].isin(present)].copy()
         new_present_df["Status"] = "Present"
-        new_present_df["Date"] = sunday_str
+        new_present_df["Date"] = sunday_str  # This will be YYYY-MM-DD format only
         
         output = new_present_df[["Date", "Membership Number", "Full Name", "Group", "Status"]]
         
@@ -139,13 +138,13 @@ def attendance_page():
                 master_df = pd.read_csv(MASTER_FILE)
                 st.write(f"📖 Existing file has {len(master_df)} records")
                 
-                # Remove existing entries for this date/group to prevent duplicates
-                master_df["Date"] = pd.to_datetime(master_df["Date"], errors="coerce")
-                sunday_dt = pd.to_datetime(sunday_str)
+                # FIX: Normalize ALL dates to YYYY-MM-DD format (no timestamps)
+                master_df["Date"] = pd.to_datetime(master_df["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
                 
+                # Remove existing entries for this date/group to prevent duplicates
                 before_removal = len(master_df)
                 master_df = master_df[~(
-                    (master_df["Date"] == sunday_dt) & 
+                    (master_df["Date"] == sunday_str) & 
                     (master_df["Group"] == group)
                 )]
                 after_removal = len(master_df)
@@ -157,6 +156,9 @@ def attendance_page():
             else:
                 st.info("📄 Creating new attendance file")
                 updated_df = output.copy()
+            
+            # FIX: Ensure ALL dates in final dataframe are in YYYY-MM-DD format
+            updated_df["Date"] = pd.to_datetime(updated_df["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
             
             # Save the file
             updated_df.to_csv(MASTER_FILE, index=False)
@@ -275,7 +277,8 @@ def history_page():
         df = pd.read_csv(MASTER_FILE)
         st.write(f"📊 Loaded {len(df)} total records")
         
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        # FIX: Normalize all dates to YYYY-MM-DD format
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
         valid_df = df[df["Date"].notnull()]
         
         st.write(f"📅 {len(valid_df)} records with valid dates")
@@ -284,6 +287,8 @@ def history_page():
             st.warning("No valid attendance records found.")
             return
         
+        # Convert back to datetime for date operations
+        valid_df["Date"] = pd.to_datetime(valid_df["Date"])
         dates = sorted(valid_df["Date"].dt.date.unique(), reverse=True)
         st.write(f"📅 Available dates: {len(dates)}")
         
@@ -309,10 +314,11 @@ def dashboard_page():
         st.write(f"📊 Total records loaded: {len(df)}")
         
         # Show first few rows for debugging
-        st.write("**First 5 records:**")
+        st.write("**First 5 records (before date normalization):**")
         st.dataframe(df.head())
         
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        # FIX: Normalize all dates to YYYY-MM-DD format
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
         df = df[df["Date"].notnull()]
         
         st.write(f"📅 Records with valid dates: {len(df)}")
@@ -320,6 +326,9 @@ def dashboard_page():
         if df.empty:
             st.warning("No valid attendance records found.")
             return
+        
+        # Convert back to datetime for operations
+        df["Date"] = pd.to_datetime(df["Date"])
         
         # Show date range
         st.write(f"📅 Date range: {df['Date'].min().date()} to {df['Date'].max().date()}")
@@ -339,7 +348,7 @@ def dashboard_page():
             st.metric("Unique Members", unique_members)
         
         # Show all data for debugging
-        st.subheader("📋 All Data")
+        st.subheader("📋 All Data (after normalization)")
         st.dataframe(df)
         
         # Basic chart
