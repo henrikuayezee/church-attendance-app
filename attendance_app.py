@@ -36,30 +36,9 @@ def attendance_page():
 
     sunday = st.date_input("Select Sunday", value=date.today())
     sunday_str = pd.to_datetime(sunday).strftime("%Y-%m-%d")
-    sunday_dt = pd.to_datetime(sunday_str)
-
     group = st.selectbox("Select Group", sorted(members_df["Group"].dropna().unique()))
 
-    if os.path.exists(MASTER_FILE):
-        master_df = pd.read_csv(MASTER_FILE)
-        master_df["Date"] = pd.to_datetime(master_df["Date"], errors="coerce")
-        master_df = master_df[master_df["Date"].notnull()]
-    else:
-        master_df = pd.DataFrame(columns=["Date", "Membership Number", "Full Name", "Group", "Status"])
-
-    # 🧼 Remove names already marked Present for this date
-    already_present_names = master_df[
-        (master_df["Date"] == sunday_dt) &
-        (master_df["Status"] == "Present")
-    ]["Full Name"].unique().tolist()
-
     group_df = members_df[members_df["Group"] == group].copy()
-    group_df = group_df[~group_df["Full Name"].isin(already_present_names)]
-
-    if group_df.empty:
-        st.info(f"✅ All members in {group} have already been marked Present for {sunday_str}.")
-        return
-
     present = st.multiselect("Select Present Members:", group_df["Full Name"].tolist())
 
     if st.button("✅ Submit Attendance"):
@@ -67,19 +46,33 @@ def attendance_page():
             st.warning("⚠️ Please select at least one member as present before submitting.")
             return
 
-        # Filter out anyone already recorded as Present (again for safety)
         new_present_df = group_df[group_df["Full Name"].isin(present)].copy()
-
-        # Build new rows to append
         new_present_df["Status"] = "Present"
         new_present_df["Date"] = sunday_str
 
         output = new_present_df[["Date", "Membership Number", "Full Name", "Group", "Status"]]
 
-        # Append to master
-        updated_df = pd.concat([master_df, output], ignore_index=True)
-        updated_df.to_csv(MASTER_FILE, index=False)
+        # Check if file exists and warn for duplicates (but still allow)
+        if os.path.exists(MASTER_FILE):
+            master_df = pd.read_csv(MASTER_FILE)
+            master_df["Date"] = pd.to_datetime(master_df["Date"], errors="coerce")
+            master_df = master_df[master_df["Date"].notnull()]
+            sunday_dt = pd.to_datetime(sunday_str)
 
+            duplicates = []
+            for name in output["Full Name"]:
+                if ((master_df["Date"] == sunday_dt) & 
+                    (master_df["Full Name"] == name) &
+                    (master_df["Group"] == group)).any():
+                    duplicates.append(name)
+            if duplicates:
+                st.warning(f"⚠️ These names already have attendance for {sunday_str} in {group}: {', '.join(duplicates)}")
+
+            updated_df = pd.concat([master_df, output], ignore_index=True)
+        else:
+            updated_df = output.copy()
+
+        updated_df.to_csv(MASTER_FILE, index=False)
         st.success(f"✅ {len(output)} member(s) marked Present for {group} on {sunday_str}")
 
 # --- PAGE 2: HISTORY ---
