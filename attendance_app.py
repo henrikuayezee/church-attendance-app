@@ -44,16 +44,15 @@ def attendance_page():
             st.warning("⚠️ Please select at least one member as present before submitting.")
             return
 
-        # --- Load master attendance file ---
         if os.path.exists(MASTER_FILE):
             master_df = pd.read_csv(MASTER_FILE)
-            master_df["Date"] = pd.to_datetime(master_df["Date"])
+            master_df["Date"] = pd.to_datetime(master_df["Date"], errors="coerce")
+            master_df = master_df[master_df["Date"].notnull()]
         else:
             master_df = pd.DataFrame(columns=["Date", "Membership Number", "Full Name", "Group", "Status"])
 
         sunday_dt = pd.to_datetime(sunday)
 
-        # --- Check for duplicates ONLY in selected names ---
         duplicate_names = []
         for name in present:
             is_duplicate = (
@@ -68,7 +67,6 @@ def attendance_page():
             st.error(f"⚠️ These member(s) already have attendance for {sunday} in {group}: {', '.join(duplicate_names)}")
             return
 
-        # --- Save attendance ---
         group_df["Status"] = group_df["Full Name"].apply(lambda name: "Present" if name in present else "Absent")
         output = group_df[["Membership Number", "Full Name", "Group"]].copy()
         output.insert(0, "Date", sunday)
@@ -88,10 +86,16 @@ def history_page():
         return
 
     df = pd.read_csv(MASTER_FILE)
-    df["Date"] = pd.to_datetime(df["Date"])
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df[df["Date"].notnull()]
+
+    if df.empty:
+        st.warning("No valid attendance records found.")
+        return
+
     dates = sorted(df["Date"].dt.date.unique(), reverse=True)
-    
     selected_date = st.selectbox("Select a Sunday", dates)
+
     filtered = df[df["Date"].dt.date == selected_date]
 
     st.write(f"Showing attendance for **{selected_date}**")
@@ -113,7 +117,12 @@ def dashboard_page():
         return
 
     df = pd.read_csv(MASTER_FILE)
-    df["Date"] = pd.to_datetime(df["Date"])
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df[df["Date"].notnull()]
+
+    if df.empty:
+        st.warning("No valid attendance records found.")
+        return
 
     st.markdown("### 🔎 Filter Options")
     col1, col2 = st.columns(2)
