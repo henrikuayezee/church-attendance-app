@@ -7,16 +7,20 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
+
 import firebase_admin
 from firebase_admin import credentials, firestore
 
 @st.cache_resource
 def init_firebase():
-    cred = credentials.Certificate("firebase_key.json")
-    firebase_admin.initialize_app(cred)
+    firebase_dict = st.secrets["firebase"]
+    cred = credentials.Certificate(firebase_dict)
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(cred)
     return firestore.client()
 
 db = init_firebase()
+
 
 def load_members():
     try:
