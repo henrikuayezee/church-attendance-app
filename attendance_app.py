@@ -6,6 +6,62 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+@st.cache_resource
+def init_firebase():
+    cred = credentials.Certificate("firebase_key.json")
+    firebase_admin.initialize_app(cred)
+    return firestore.client()
+
+db = init_firebase()
+
+def load_members():
+    try:
+        members_ref = db.collection("members")
+        docs = members_ref.stream()
+        members = [doc.to_dict() for doc in docs]
+        return pd.DataFrame(members)
+    except Exception as e:
+        st.error(f"Error loading members: {str(e)}")
+        return pd.DataFrame()
+
+def save_members(df):
+    try:
+        members_ref = db.collection("members")
+        for doc in members_ref.stream():
+            doc.reference.delete()
+        for _, row in df.iterrows():
+            members_ref.add(row.to_dict())
+        return True
+    except Exception as e:
+        st.error(f"Error saving members: {str(e)}")
+        return False
+
+def load_attendance():
+    try:
+        att_ref = db.collection("attendance")
+        docs = att_ref.stream()
+        records = [doc.to_dict() for doc in docs]
+        for rec in records:
+            rec["Date"] = pd.to_datetime(rec["Date"])
+        return pd.DataFrame(records)
+    except Exception as e:
+        st.error(f"Error loading attendance: {str(e)}")
+        return pd.DataFrame()
+
+def save_attendance(df):
+    try:
+        att_ref = db.collection("attendance")
+        for _, row in df.iterrows():
+            att_ref.add(row.to_dict())
+        return True
+    except Exception as e:
+        st.error(f"Error saving attendance: {str(e)}")
+        return False
+
 # Page configuration
 st.set_page_config(
     page_title="Church Attendance System",
@@ -64,13 +120,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # File paths
-MEMBER_FILE = "members.csv"
-MASTER_FILE = "all_attendance.csv"
-EXPORT_DIR = "exports"
 
-os.makedirs(EXPORT_DIR, exist_ok=True)
-
-def load_data_safely(file_path):
+# CSV version disabled
+def load_data_safely_UNUSED(file_path):
     """Load CSV data with consistent date formatting"""
     try:
         if os.path.exists(file_path):
@@ -84,7 +136,8 @@ def load_data_safely(file_path):
         st.error(f"Error loading data: {str(e)}")
         return pd.DataFrame()
 
-def save_data_safely(df, file_path):
+# CSV version disabled
+def save_data_safely_UNUSED(df, file_path):
     """Save CSV data with error handling"""
     try:
         # Ensure dates are in correct format before saving
@@ -125,7 +178,7 @@ def main_app():
     
     # Quick stats in sidebar
     try:
-        df = load_data_safely(MASTER_FILE)
+        df = load_attendance()
         if not df.empty:
             total_records = len(df)
             unique_dates = len(df['Date'].unique()) if 'Date' in df.columns else 0
@@ -154,8 +207,8 @@ def dashboard_home():
     st.markdown('<div class="main-header">🏠 Dashboard Overview</div>', unsafe_allow_html=True)
     
     # Load data
-    df = load_data_safely(MASTER_FILE)
-    members_df = load_data_safely(MEMBER_FILE)
+    df = load_attendance()
+    members_df = load_members()
     
     if df.empty:
         st.info("👋 Welcome! No attendance data yet. Start by marking attendance or uploading member data in the Admin Panel.")
@@ -340,7 +393,7 @@ def attendance_page():
     st.markdown('<div class="main-header">📝 Mark Attendance</div>', unsafe_allow_html=True)
     
     # Check for members file
-    members_df = load_data_safely(MEMBER_FILE)
+    members_df = load_members()
     if members_df.empty:
         st.warning("⚠️ No members file found. Please upload member data in the Admin Panel first.")
         if st.button("🔗 Go to Admin Panel"):
@@ -373,7 +426,7 @@ def attendance_page():
     st.info(f"📊 **{group}** has **{len(group_df)}** members total")
     
     # Check for existing attendance
-    master_df = load_data_safely(MASTER_FILE)
+    master_df = load_attendance()
     existing_attendance = []
     
     if not master_df.empty and "Date" in master_df.columns:
@@ -488,7 +541,7 @@ def attendance_page():
             else:
                 updated_df = output.copy()
             
-            if save_data_safely(updated_df, MASTER_FILE):
+            if save_attendance(updated_df):
                 st.markdown(f"""
                 <div class="success-banner">
                     🎉 Successfully saved {len(output)} attendance records for {group} on {sunday_str}!
@@ -509,7 +562,7 @@ def attendance_page():
 def history_page():
     st.markdown('<div class="main-header">📅 Attendance History</div>', unsafe_allow_html=True)
     
-    df = load_data_safely(MASTER_FILE)
+    df = load_attendance()
     if df.empty:
         st.info("📝 No attendance records found. Start by marking attendance!")
         return
@@ -632,7 +685,7 @@ def history_page():
 def analytics_page():
     st.markdown('<div class="main-header">📊 Analytics & Insights</div>', unsafe_allow_html=True)
     
-    df = load_data_safely(MASTER_FILE)
+    df = load_attendance()
     if df.empty:
         st.info("📈 No data available for analytics. Please mark some attendance first!")
         return
@@ -799,8 +852,8 @@ def analytics_page():
 def reports_page():
     st.markdown('<div class="main-header">📈 Detailed Reports</div>', unsafe_allow_html=True)
     
-    df = load_data_safely(MASTER_FILE)
-    members_df = load_data_safely(MEMBER_FILE)
+    df = load_attendance()
+    members_df = load_members()
     
     if df.empty:
         st.info("📊 No attendance data available for reports. Please mark some attendance first!")
@@ -1224,7 +1277,7 @@ def admin_page():
 def manage_members():
     st.markdown("### 👥 Member List Management")
     
-    members_df = load_data_safely(MEMBER_FILE)
+    members_df = load_members()
     
     if not members_df.empty:
         # Display current members with statistics
@@ -1304,7 +1357,7 @@ def manage_members():
                 
                 # Confirm upload
                 if st.button("✅ Confirm Upload", type="primary"):
-                    if save_data_safely(new_df, MEMBER_FILE):
+                    if save_members(new_df):
                         st.success("🎉 Member list updated successfully!")
                         st.balloons()
                         st.rerun()
@@ -1319,7 +1372,7 @@ def manage_data():
     st.markdown("### 🗃️ Data Management")
     
     # Current data statistics
-    df = load_data_safely(MASTER_FILE)
+    df = load_attendance()
     
     if not df.empty:
         df["Date"] = pd.to_datetime(df["Date"])
