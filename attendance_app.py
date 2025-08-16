@@ -5,7 +5,7 @@ from google.oauth2.service_account import Credentials
 from datetime import date, datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
-import json
+from plotly.subplots import make_subplots
 
 # Page configuration
 st.set_page_config(
@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS for better styling
 st.markdown("""
 <style>
     .main-header {
@@ -85,7 +85,7 @@ class GoogleSheetsManager:
             except gspread.SpreadsheetNotFound:
                 # Create new spreadsheet if it doesn't exist
                 self.spreadsheet = self.client.create(spreadsheet_name)
-                st.info(f"Created new spreadsheet: {spreadsheet_name}")
+                st.info(f"✅ Created new spreadsheet: {spreadsheet_name}")
             
             # Get or create worksheets
             self.setup_worksheets()
@@ -143,13 +143,15 @@ class GoogleSheetsManager:
             return pd.DataFrame()
         
         try:
-            data = self.members_sheet.get_all_records()
-            df = pd.DataFrame(data)
-            
-            # Clean empty rows
-            df = df[df['Membership Number'].astype(str).str.strip() != '']
-            
-            return df
+            with st.spinner("Loading members from Google Sheets..."):
+                data = self.members_sheet.get_all_records()
+                df = pd.DataFrame(data)
+                
+                # Clean empty rows
+                if not df.empty:
+                    df = df[df['Membership Number'].astype(str).str.strip() != '']
+                
+                return df
         except Exception as e:
             st.error(f"Error loading members: {str(e)}")
             return pd.DataFrame()
@@ -160,31 +162,32 @@ class GoogleSheetsManager:
             return False
         
         try:
-            # Clear existing data (except headers)
-            self.members_sheet.clear()
-            
-            # Add headers
-            headers = ['Membership Number', 'Full Name', 'Group', 'Email', 'Phone']
-            self.members_sheet.update('A1:E1', [headers])
-            
-            # Prepare data
-            data = []
-            for _, row in df.iterrows():
-                data.append([
-                    str(row.get('Membership Number', '')),
-                    str(row.get('Full Name', '')),
-                    str(row.get('Group', '')),
-                    str(row.get('Email', '')),
-                    str(row.get('Phone', ''))
-                ])
-            
-            # Update sheet
-            if data:
-                range_name = f'A2:E{len(data) + 1}'
-                self.members_sheet.update(range_name, data)
-            
-            return True
-            
+            with st.spinner("Saving members to Google Sheets..."):
+                # Clear existing data (except headers)
+                self.members_sheet.clear()
+                
+                # Add headers
+                headers = ['Membership Number', 'Full Name', 'Group', 'Email', 'Phone']
+                self.members_sheet.update('A1:E1', [headers])
+                
+                # Prepare data
+                data = []
+                for _, row in df.iterrows():
+                    data.append([
+                        str(row.get('Membership Number', '')),
+                        str(row.get('Full Name', '')),
+                        str(row.get('Group', '')),
+                        str(row.get('Email', '')),
+                        str(row.get('Phone', ''))
+                    ])
+                
+                # Update sheet
+                if data:
+                    range_name = f'A2:E{len(data) + 1}'
+                    self.members_sheet.update(range_name, data)
+                
+                return True
+                
         except Exception as e:
             st.error(f"Error saving members: {str(e)}")
             return False
@@ -195,14 +198,15 @@ class GoogleSheetsManager:
             return pd.DataFrame()
         
         try:
-            data = self.attendance_sheet.get_all_records()
-            df = pd.DataFrame(data)
-            
-            # Clean empty rows
-            if not df.empty:
-                df = df[df['Date'].astype(str).str.strip() != '']
-            
-            return df
+            with st.spinner("Loading attendance from Google Sheets..."):
+                data = self.attendance_sheet.get_all_records()
+                df = pd.DataFrame(data)
+                
+                # Clean empty rows
+                if not df.empty:
+                    df = df[df['Date'].astype(str).str.strip() != '']
+                
+                return df
         except Exception as e:
             st.error(f"Error loading attendance: {str(e)}")
             return pd.DataFrame()
@@ -213,51 +217,52 @@ class GoogleSheetsManager:
             return False
         
         try:
-            # Load existing data
-            existing_df = self.load_attendance()
-            
-            # Remove existing records for this date/group
-            if not existing_df.empty:
-                existing_df = existing_df[
-                    ~((existing_df['Date'] == attendance_date) & 
-                      (existing_df['Group'] == group_name))
-                ]
-            
-            # Prepare new records
-            new_records = []
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            for _, row in df.iterrows():
-                new_records.append({
-                    'Date': attendance_date,
-                    'Membership Number': str(row['Membership Number']),
-                    'Full Name': str(row['Full Name']),
-                    'Group': str(row['Group']),
-                    'Status': 'Present',
-                    'Timestamp': timestamp
-                })
-            
-            # Combine with existing data
-            if not existing_df.empty:
-                updated_df = pd.concat([existing_df, pd.DataFrame(new_records)], ignore_index=True)
-            else:
-                updated_df = pd.DataFrame(new_records)
-            
-            # Clear and update sheet
-            self.attendance_sheet.clear()
-            
-            # Add headers
-            headers = ['Date', 'Membership Number', 'Full Name', 'Group', 'Status', 'Timestamp']
-            self.attendance_sheet.update('A1:F1', [headers])
-            
-            # Add data
-            if not updated_df.empty:
-                data = updated_df.values.tolist()
-                range_name = f'A2:F{len(data) + 1}'
-                self.attendance_sheet.update(range_name, data)
-            
-            return True
-            
+            with st.spinner("Saving attendance to Google Sheets..."):
+                # Load existing data
+                existing_df = self.load_attendance()
+                
+                # Remove existing records for this date/group
+                if not existing_df.empty:
+                    existing_df = existing_df[
+                        ~((existing_df['Date'] == attendance_date) & 
+                          (existing_df['Group'] == group_name))
+                    ]
+                
+                # Prepare new records
+                new_records = []
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                for _, row in df.iterrows():
+                    new_records.append({
+                        'Date': attendance_date,
+                        'Membership Number': str(row['Membership Number']),
+                        'Full Name': str(row['Full Name']),
+                        'Group': str(row['Group']),
+                        'Status': 'Present',
+                        'Timestamp': timestamp
+                    })
+                
+                # Combine with existing data
+                if not existing_df.empty:
+                    updated_df = pd.concat([existing_df, pd.DataFrame(new_records)], ignore_index=True)
+                else:
+                    updated_df = pd.DataFrame(new_records)
+                
+                # Clear and update sheet
+                self.attendance_sheet.clear()
+                
+                # Add headers
+                headers = ['Date', 'Membership Number', 'Full Name', 'Group', 'Status', 'Timestamp']
+                self.attendance_sheet.update('A1:F1', [headers])
+                
+                # Add data
+                if not updated_df.empty:
+                    data = updated_df.values.tolist()
+                    range_name = f'A2:F{len(data) + 1}'
+                    self.attendance_sheet.update(range_name, data)
+                
+                return True
+                
         except Exception as e:
             st.error(f"Error saving attendance: {str(e)}")
             return False
@@ -298,17 +303,38 @@ class GoogleSheetsManager:
 def get_sheets_manager():
     return GoogleSheetsManager()
 
+def show_setup_instructions():
+    """Show Google Sheets setup instructions"""
+    st.markdown("## 🔧 Google Sheets Setup Instructions")
+    
+    with st.expander("📋 Complete Setup Guide", expanded=True):
+        st.markdown("""
+        ### 1. Create Google Cloud Project
+        1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+        2. Create a new project: "Church Attendance System"
+        3. Enable Google Sheets API and Google Drive API
+        
+        ### 2. Create Service Account
+        1. Go to **IAM & Admin** → **Service Accounts**
+        2. Click **Create Service Account**
+        3. Name: `church-attendance-service`
+        4. Download the JSON credentials file
+        
+        ### 3. Create Google Spreadsheet
+        1. Go to [Google Sheets](https://sheets.google.com)
+        2. Create new spreadsheet: "Church Attendance System"
+        3. Share with your service account email (Editor permissions)
+        
+        ### 4. Configure Streamlit Secrets
+        Create `.streamlit/secrets.toml` file and paste your JSON credentials.
+        """)
+
 sheets = get_sheets_manager()
 
 def main_app():
     # Check connection status
     if not sheets.is_connected():
-        st.error("""
-        ❌ **Google Sheets Not Connected**
-        
-        Please configure your Google Sheets credentials in Streamlit secrets.
-        See the setup instructions below.
-        """)
+        st.error("❌ **Google Sheets Not Connected**")
         show_setup_instructions()
         return
     
@@ -334,20 +360,21 @@ def main_app():
         index=0
     )
     
-    # Database status in sidebar
+    # Sidebar stats
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 📊 Cloud Stats")
+    st.sidebar.markdown("### ☁️ Cloud Stats")
     
     try:
         stats = sheets.get_stats()
-        st.sidebar.metric("👥 Total Members", stats.get('total_members', 0))
         st.sidebar.metric("📋 Total Records", stats.get('total_attendance', 0))
         st.sidebar.metric("📅 Sundays Tracked", stats.get('unique_dates', 0))
+        st.sidebar.metric("👥 Total Members", stats.get('total_members', 0))
+        st.sidebar.success("✅ Google Sheets Connected")
         
         if stats.get('spreadsheet_url'):
             st.sidebar.markdown(f"[📊 View Spreadsheet]({stats['spreadsheet_url']})")
     except:
-        st.sidebar.info("Loading stats...")
+        st.sidebar.error("❌ Loading stats...")
     
     # Route to pages
     if page == "🏠 Dashboard":
@@ -363,157 +390,69 @@ def main_app():
     elif page == "⚙️ Admin Panel":
         admin_page()
 
-def show_setup_instructions():
-    """Show Google Sheets setup instructions"""
-    st.markdown("## 🔧 Google Sheets Setup Instructions")
-    
-    with st.expander("📋 Step-by-Step Setup Guide", expanded=True):
-        st.markdown("""
-        ### 1. Create Google Cloud Project
-        1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-        2. Create a new project or select existing one
-        3. Enable Google Sheets API and Google Drive API
-        
-        ### 2. Create Service Account
-        1. Go to **IAM & Admin** → **Service Accounts**
-        2. Click **Create Service Account**
-        3. Fill in service account details
-        4. Click **Create and Continue**
-        
-        ### 3. Generate Credentials
-        1. Click on your service account
-        2. Go to **Keys** tab
-        3. Click **Add Key** → **Create New Key**
-        4. Choose **JSON** format
-        5. Download the JSON file
-        
-        ### 4. Configure Streamlit Secrets
-        Add this to your `.streamlit/secrets.toml` file:
-        
-        ```toml
-        spreadsheet_name = "Church Attendance System"
-        
-        [google_sheets]
-        type = "service_account"
-        project_id = "your-project-id"
-        private_key_id = "your-private-key-id"
-        private_key = "-----BEGIN PRIVATE KEY-----\\nYour-Private-Key\\n-----END PRIVATE KEY-----\\n"
-        client_email = "your-service-account@your-project.iam.gserviceaccount.com"
-        client_id = "your-client-id"
-        auth_uri = "https://accounts.google.com/o/oauth2/auth"
-        token_uri = "https://oauth2.googleapis.com/token"
-        auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-        client_x509_cert_url = "https://www.googleapis.com/robot/v1/metadata/x509/your-service-account%40your-project.iam.gserviceaccount.com"
-        ```
-        
-        ### 5. Share Spreadsheet (If using existing spreadsheet)
-        1. Open your Google Spreadsheet
-        2. Click **Share** button
-        3. Add your service account email with **Editor** permissions
-        4. Copy the spreadsheet name to `spreadsheet_name` in secrets
-        
-        ### 6. For Streamlit Cloud Deployment
-        1. Go to your app settings in Streamlit Cloud
-        2. Add the secrets in the **Secrets** section
-        3. Deploy your app
-        """)
-
 def dashboard_home():
     st.markdown('<div class="main-header">🏠 Dashboard Overview</div>', unsafe_allow_html=True)
     
-    # Load data
+    # Load data from Google Sheets
     df = sheets.load_attendance()
     members_df = sheets.load_members()
     
     if df.empty:
         st.info("👋 Welcome! No attendance data yet. Start by uploading member data and marking attendance!")
-        
-        # Show getting started guide
-        st.markdown("### 🚀 Getting Started")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("""
-            **Step 1: Upload Members**
-            - Go to Admin Panel
-            - Upload your member CSV file
-            - Data is saved to Google Sheets
-            """)
-        
-        with col2:
-            st.markdown("""
-            **Step 2: Mark Attendance**
-            - Select the Sunday date
-            - Choose a group
-            - Mark present members
-            """)
-        
-        with col3:
-            st.markdown("""
-            **Step 3: View Reports**
-            - Check Dashboard for overview
-            - Use Analytics for insights
-            - Data syncs to cloud automatically
-            """)
         return
     
     # Prepare data
     df["Date"] = pd.to_datetime(df["Date"])
     
-    # Key Metrics Row
+    # Key Metrics
     st.markdown("### 📊 Key Metrics")
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
-        total_attendance = len(df)
-        st.metric(
-            label="📋 Total Attendance",
-            value=f"{total_attendance:,}",
-            help="Total attendance records"
-        )
-    
+        st.metric("📋 Total Attendance", f"{len(df):,}")
     with col2:
-        sundays_tracked = df["Date"].nunique()
-        st.metric(
-            label="📅 Sundays Tracked",
-            value=sundays_tracked,
-            help="Number of different Sundays with attendance"
-        )
-    
+        st.metric("📅 Sundays Tracked", df["Date"].nunique())
     with col3:
-        active_members = df["Full Name"].nunique()
-        st.metric(
-            label="👥 Active Members",
-            value=active_members,
-            help="Unique members who attended at least once"
-        )
-    
+        st.metric("👥 Active Members", df["Full Name"].nunique())
     with col4:
-        groups_active = df["Group"].nunique()
-        st.metric(
-            label="📂 Active Groups",
-            value=groups_active,
-            help="Groups with recorded attendance"
-        )
-    
+        st.metric("📂 Active Groups", df["Group"].nunique())
     with col5:
-        if sundays_tracked > 0:
-            avg_attendance = total_attendance / sundays_tracked
-            st.metric(
-                label="📈 Avg per Sunday",
-                value=f"{avg_attendance:.1f}",
-                help="Average attendance per Sunday"
-            )
-        else:
-            st.metric("📈 Avg per Sunday", "0")
+        sundays = df["Date"].nunique()
+        avg_attendance = len(df) / sundays if sundays > 0 else 0
+        st.metric("📈 Avg per Sunday", f"{avg_attendance:.1f}")
     
-    # Cloud storage status
-    st.markdown("### ☁️ Cloud Storage Status")
-    stats = sheets.get_stats()
-    if stats.get('spreadsheet_url'):
-        st.success(f"✅ Connected to Google Sheets - [View Spreadsheet]({stats['spreadsheet_url']})")
-    else:
-        st.warning("⚠️ Google Sheets connection not available")
+    # Attendance Trend
+    st.markdown("### 📈 Attendance Trend")
+    
+    recent_data = df[df["Date"] >= (datetime.now() - timedelta(weeks=8))]
+    weekly_trend = recent_data.groupby("Date").size().reset_index(name="Attendance")
+    
+    if len(weekly_trend) > 1:
+        fig = px.line(
+            weekly_trend,
+            x="Date",
+            y="Attendance",
+            markers=True,
+            title="Weekly Attendance Trend (Last 8 Weeks)"
+        )
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Group Performance
+    st.markdown("### 👥 Group Performance")
+    
+    group_stats = df.groupby("Group").size().reset_index(name="Total_Attendance")
+    
+    fig = px.bar(
+        group_stats,
+        x="Group",
+        y="Total_Attendance",
+        title="Total Attendance by Group",
+        color="Total_Attendance",
+        color_continuous_scale="blues"
+    )
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
 
 def attendance_page():
     st.markdown('<div class="main-header">✓ Mark Attendance</div>', unsafe_allow_html=True)
@@ -525,24 +464,15 @@ def attendance_page():
         return
     
     # Main form
-    with st.container():
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            sunday = st.date_input(
-                "📅 Select Sunday",
-                value=date.today(),
-                help="Choose the Sunday for attendance marking"
-            )
-            sunday_str = sunday.strftime("%Y-%m-%d")
-        
-        with col2:
-            available_groups = sorted(members_df["Group"].dropna().unique())
-            group = st.selectbox(
-                "👥 Select Group",
-                available_groups,
-                help="Choose the group to mark attendance for"
-            )
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        sunday = st.date_input("📅 Select Sunday", value=date.today())
+        sunday_str = sunday.strftime("%Y-%m-%d")
+    
+    with col2:
+        available_groups = sorted(members_df["Group"].dropna().unique())
+        group = st.selectbox("👥 Select Group", available_groups)
     
     # Group information
     group_df = members_df[members_df["Group"] == group].copy()
@@ -557,257 +487,286 @@ def attendance_page():
             ⚠️ Found {len(existing_attendance)} existing records for {sunday_str} in {group}
         </div>
         """, unsafe_allow_html=True)
-        
-        with st.expander("👀 View existing attendance"):
-            for name in existing_attendance:
-                st.write(f"✅ {name}")
     
     # Member selection
     st.markdown("### 👤 Select Present Members")
     
-    # Search functionality
-    search_term = st.text_input(
-        "🔍 Search members",
-        placeholder="Type to search by name...",
-        help="Start typing to filter members"
-    )
-    
-    # Filter members based on search
-    if search_term:
-        filtered_members = group_df[
-            group_df["Full Name"].str.contains(search_term, case=False, na=False)
-        ]
-        st.info(f"Found {len(filtered_members)} members matching '{search_term}'")
-    else:
-        filtered_members = group_df
-    
-    # Member selection
     present = st.multiselect(
         "Present Members:",
-        filtered_members["Full Name"].tolist(),
+        group_df["Full Name"].tolist(),
         default=existing_attendance,
         help="Select all members who are present today"
     )
     
-    # Show selection summary
-    if present:
-        attendance_rate = (len(present) / len(group_df)) * 100
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("👥 Selected", len(present))
-        with col2:
-            st.metric("📊 Attendance Rate", f"{attendance_rate:.1f}%")
-        with col3:
-            st.metric("❌ Absent", len(group_df) - len(present))
-    
     # Submit button
-    st.markdown("---")
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button(
-            "☁️ Save to Google Sheets",
-            type="primary",
-            use_container_width=True,
-            help="Save attendance records to Google Sheets"
-        ):
-            if not present:
-                st.error("⚠️ Please select at least one member as present before submitting.")
-                return
-            
-            # Create attendance records
-            present_df = group_df[group_df["Full Name"].isin(present)].copy()
-            
-            with st.spinner("Saving to Google Sheets..."):
-                if sheets.save_attendance(present_df, sunday_str, group):
-                    st.markdown(f"""
-                    <div class="success-banner">
-                        🎉 Successfully saved {len(present_df)} attendance records to Google Sheets!
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.balloons()
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.success(f"✅ {len(present)} members marked present")
-                    with col2:
-                        st.info(f"📅 Date: {sunday_str}")
-                else:
-                    st.error("❌ Failed to save attendance. Please try again.")
+    if st.button("☁️ Save to Google Sheets", type="primary", use_container_width=True):
+        if not present:
+            st.error("⚠️ Please select at least one member as present.")
+            return
+        
+        present_df = group_df[group_df["Full Name"].isin(present)].copy()
+        
+        if sheets.save_attendance(present_df, sunday_str, group):
+            st.markdown(f"""
+            <div class="success-banner">
+                🎉 Successfully saved {len(present_df)} attendance records to Google Sheets!
+            </div>
+            """, unsafe_allow_html=True)
+            st.balloons()
+        else:
+            st.error("❌ Failed to save attendance.")
 
 def history_page():
     st.markdown('<div class="main-header">📅 Attendance History</div>', unsafe_allow_html=True)
     
-    with st.spinner("Loading attendance history..."):
-        df = sheets.load_attendance()
-    
+    df = sheets.load_attendance()
     if df.empty:
-        st.info("📝 No attendance records found. Start by marking attendance!")
+        st.info("📝 No attendance records found.")
         return
     
-    # Convert dates
     df["Date"] = pd.to_datetime(df["Date"])
     
-    # Rest of the history page implementation (same as before)
-    # ... (keeping it shorter for space, but you'd include all the filtering and display logic)
+    # Basic filters
+    col1, col2 = st.columns(2)
     
-    # Display data
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    with col1:
+        groups = ["All Groups"] + sorted(df["Group"].unique())
+        selected_group = st.selectbox("👥 Filter by Group", groups)
     
-    # Export option
-    csv_data = df.to_csv(index=False)
-    st.download_button(
-        label="📄 Download as CSV",
-        data=csv_data,
-        file_name=f"attendance_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-        mime="text/csv"
-    )
+    with col2:
+        quick_filter = st.selectbox(
+            "⚡ Quick Filter",
+            ["All Time", "Last Week", "Last Month"]
+        )
+    
+    # Apply filters
+    if quick_filter == "Last Week":
+        week_ago = datetime.now() - timedelta(days=7)
+        filtered_df = df[df["Date"] >= week_ago]
+    elif quick_filter == "Last Month":
+        month_ago = datetime.now() - timedelta(days=30)
+        filtered_df = df[df["Date"] >= month_ago]
+    else:
+        filtered_df = df.copy()
+    
+    if selected_group != "All Groups":
+        filtered_df = filtered_df[filtered_df["Group"] == selected_group]
+    
+    # Display results
+    st.markdown("### 📋 Records")
+    
+    if not filtered_df.empty:
+        display_df = filtered_df.copy()
+        display_df["Date"] = display_df["Date"].dt.strftime("%Y-%m-%d")
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        # Export option
+        csv_data = filtered_df.to_csv(index=False)
+        st.download_button(
+            "📄 Download as CSV",
+            csv_data,
+            f"attendance_{datetime.now().strftime('%Y%m%d')}.csv",
+            "text/csv"
+        )
+    else:
+        st.warning("No records found for the selected filters.")
 
 def analytics_page():
     st.markdown('<div class="main-header">📊 Analytics & Insights</div>', unsafe_allow_html=True)
     
-    with st.spinner("Loading analytics data..."):
-        df = sheets.load_attendance()
-    
+    df = sheets.load_attendance()
     if df.empty:
-        st.info("📈 No data available for analytics. Please mark some attendance first!")
+        st.info("📈 No data available for analytics.")
         return
     
-    # Analytics implementation (simplified for space)
     df["Date"] = pd.to_datetime(df["Date"])
     
-    # Basic metrics
-    col1, col2, col3 = st.columns(3)
+    # Analytics tabs
+    tab1, tab2, tab3 = st.tabs(["📈 Trends", "👥 Groups", "🎯 Members"])
     
-    with col1:
-        st.metric("Total Records", len(df))
-    with col2:
-        st.metric("Unique Members", df["Full Name"].nunique())
-    with col3:
-        st.metric("Active Groups", df["Group"].nunique())
+    with tab1:
+        st.markdown("#### 📈 Attendance Trends")
+        
+        weekly_data = df.groupby(df["Date"].dt.to_period("W")).size()
+        weekly_df = pd.DataFrame({
+            "Week": weekly_data.index.astype(str),
+            "Attendance": weekly_data.values
+        })
+        
+        if len(weekly_df) > 0:
+            fig = px.line(
+                weekly_df,
+                x="Week",
+                y="Attendance",
+                markers=True,
+                title="Weekly Attendance Trend"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with tab2:
+        st.markdown("#### 👥 Group Analysis")
+        
+        group_stats = df.groupby("Group").agg({
+            "Full Name": ["count", "nunique"],
+            "Date": "nunique"
+        })
+        
+        group_stats.columns = ["Total_Attendance", "Unique_Members", "Sundays_Active"]
+        group_stats["Avg_per_Sunday"] = (group_stats["Total_Attendance"] / group_stats["Sundays_Active"]).round(1)
+        
+        st.dataframe(group_stats, use_container_width=True)
+    
+    with tab3:
+        st.markdown("#### 🎯 Member Engagement")
+        
+        member_stats = df.groupby("Full Name").agg({
+            "Date": ["count", "nunique"],
+            "Group": "first"
+        })
+        
+        member_stats.columns = ["Total_Attendance", "Unique_Sundays", "Group"]
+        member_stats = member_stats.reset_index().sort_values("Total_Attendance", ascending=False)
+        
+        st.markdown("**🏆 Top 10 Most Active Members**")
+        st.dataframe(member_stats.head(10), use_container_width=True, hide_index=True)
 
 def reports_page():
     st.markdown('<div class="main-header">📈 Detailed Reports</div>', unsafe_allow_html=True)
     
-    with st.spinner("Generating reports..."):
-        df = sheets.load_attendance()
-    
+    df = sheets.load_attendance()
     if df.empty:
         st.info("📊 No attendance data available for reports.")
         return
     
-    # Basic report
-    st.markdown("### 📊 Summary Report")
-    st.dataframe(df.groupby("Group").size().reset_index(name="Total_Attendance"))
+    df["Date"] = pd.to_datetime(df["Date"])
+    
+    # Report selector
+    report_type = st.selectbox(
+        "📋 Select Report Type",
+        [
+            "📅 Monthly Summary",
+            "👥 Group Performance", 
+            "🎯 Member Consistency",
+            "📊 Overview Report"
+        ]
+    )
+    
+    if report_type == "📅 Monthly Summary":
+        st.markdown("### 📅 Monthly Summary Report")
+        
+        df["Month"] = df["Date"].dt.to_period("M")
+        monthly_stats = df.groupby(["Month", "Group"]).size().unstack(fill_value=0)
+        monthly_stats["Total"] = monthly_stats.sum(axis=1)
+        
+        st.dataframe(monthly_stats, use_container_width=True)
+        
+        # Export
+        csv_data = monthly_stats.to_csv()
+        st.download_button(
+            "📥 Download Report",
+            csv_data,
+            f"monthly_report_{datetime.now().strftime('%Y%m%d')}.csv",
+            "text/csv"
+        )
+    
+    elif report_type == "👥 Group Performance":
+        st.markdown("### 👥 Group Performance Report")
+        
+        group_analysis = df.groupby("Group").agg({
+            "Full Name": ["count", "nunique"],
+            "Date": "nunique"
+        })
+        
+        group_analysis.columns = ["Total_Attendance", "Active_Members", "Sundays_Active"]
+        group_analysis["Avg_per_Sunday"] = (group_analysis["Total_Attendance"] / group_analysis["Sundays_Active"]).round(1)
+        
+        st.dataframe(group_analysis, use_container_width=True)
+        
+        # Visualization
+        fig = px.bar(
+            group_analysis.reset_index(),
+            x="Group",
+            y="Avg_per_Sunday",
+            title="Average Attendance per Sunday",
+            color="Avg_per_Sunday"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 def admin_page():
     st.markdown('<div class="main-header">⚙️ Admin Panel</div>', unsafe_allow_html=True)
     
-    # Create tabs
-    tab1, tab2 = st.tabs(["👥 Member Management", "☁️ Cloud Management"])
+    tab1, tab2 = st.tabs(["👥 Member Management", "☁️ Google Sheets"])
     
     with tab1:
-        manage_members()
-    
-    with tab2:
-        manage_cloud_storage()
-
-def manage_members():
-    st.markdown("### 👥 Member List Management")
-    
-    with st.spinner("Loading members..."):
-        members_df = sheets.load_members()
-    
-    if not members_df.empty:
-        st.success(f"✅ **{len(members_df)}** members in Google Sheets")
-        st.dataframe(members_df, use_container_width=True, hide_index=True)
+        st.markdown("### 👥 Member Management")
         
-        # Download option
-        csv_data = members_df.to_csv(index=False)
-        st.download_button(
-            label="📥 Download Member List",
-            data=csv_data,
-            file_name=f"members_backup_{date.today()}.csv",
-            mime="text/csv"
-        )
-    else:
-        st.info("📝 No members in Google Sheets. Please upload a member list below.")
-    
-    # Upload new member list
-    st.markdown("### 📤 Upload New Member List")
-    
-    uploaded_file = st.file_uploader(
-        "Choose CSV file",
-        type=["csv"],
-        help="Upload a CSV file with member information"
-    )
-    
-    if uploaded_file:
-        try:
-            new_df = pd.read_csv(uploaded_file)
-            st.dataframe(new_df.head(10), use_container_width=True)
+        members_df = sheets.load_members()
+        
+        if not members_df.empty:
+            st.success(f"✅ **{len(members_df)}** members in Google Sheets")
+            st.dataframe(members_df, use_container_width=True, hide_index=True)
             
-            # Validate required columns
-            required_cols = ["Membership Number", "Full Name", "Group"]
-            missing_cols = [col for col in required_cols if col not in new_df.columns]
-            
-            if missing_cols:
-                st.error(f"❌ Missing required columns: {', '.join(missing_cols)}")
-            else:
-                st.success("✅ File format looks good!")
+            # Download
+            csv_data = members_df.to_csv(index=False)
+            st.download_button(
+                "📥 Download Member List",
+                csv_data,
+                f"members_{date.today()}.csv",
+                "text/csv"
+            )
+        else:
+            st.info("📝 No members found. Upload a member list below.")
+        
+        # Upload
+        st.markdown("### 📤 Upload Member List")
+        st.info("💡 **Required columns:** Membership Number, Full Name, Group")
+        
+        uploaded_file = st.file_uploader("Choose CSV file", type=["csv"])
+        
+        if uploaded_file:
+            try:
+                new_df = pd.read_csv(uploaded_file)
+                st.dataframe(new_df.head(10), use_container_width=True)
                 
-                if st.button("☁️ Save to Google Sheets", type="primary"):
-                    with st.spinner("Uploading to Google Sheets..."):
+                required_cols = ["Membership Number", "Full Name", "Group"]
+                missing_cols = [col for col in required_cols if col not in new_df.columns]
+                
+                if missing_cols:
+                    st.error(f"❌ Missing columns: {', '.join(missing_cols)}")
+                else:
+                    st.success("✅ File format looks good!")
+                    
+                    if st.button("☁️ Save to Google Sheets", type="primary"):
                         if sheets.save_members(new_df):
-                            st.success("🎉 Member list saved to Google Sheets!")
+                            st.success("🎉 Members saved successfully!")
                             st.balloons()
                             st.rerun()
                         else:
-                            st.error("❌ Failed to save member list.")
-                        
-        except Exception as e:
-            st.error(f"❌ Error reading file: {str(e)}")
-
-def manage_cloud_storage():
-    st.markdown("### ☁️ Google Sheets Storage")
+                            st.error("❌ Failed to save members.")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
     
-    stats = sheets.get_stats()
-    
-    # Connection status
-    if sheets.is_connected():
-        st.success("✅ Connected to Google Sheets")
+    with tab2:
+        st.markdown("### ☁️ Google Sheets Status")
         
-        # Stats
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("👥 Members", stats.get('total_members', 0))
-        with col2:
-            st.metric("📋 Records", stats.get('total_attendance', 0))
-        with col3:
-            st.metric("📅 Dates", stats.get('unique_dates', 0))
+        stats = sheets.get_stats()
         
-        # Spreadsheet link
-        if stats.get('spreadsheet_url'):
-            st.markdown(f"**📊 Spreadsheet:** [Open in Google Sheets]({stats['spreadsheet_url']})")
-    else:
-        st.error("❌ Not connected to Google Sheets")
-        st.info("Please check your credentials configuration.")
-    
-    # Benefits
-    st.markdown("### ✅ Cloud Storage Benefits")
-    st.info("""
-    **Google Sheets Integration:**
-    - ☁️ **Cloud Storage**: Data saved online, never lost
-    - 🔄 **Real-time Sync**: Updates immediately
-    - 👥 **Multi-user Access**: Multiple people can use simultaneously  
-    - 📱 **Mobile Access**: View/edit data from any device
-    - 🔒 **Secure**: Google's enterprise security
-    - 📊 **Native Spreadsheet**: View data in familiar Google Sheets interface
-    - 🆓 **Free**: No additional storage costs
-    """)
+        if sheets.is_connected():
+            st.success("✅ Connected to Google Sheets")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("👥 Members", stats.get('total_members', 0))
+            with col2:
+                st.metric("📋 Records", stats.get('total_attendance', 0))
+            with col3:
+                st.metric("📅 Dates", stats.get('unique_dates', 0))
+            
+            if stats.get('spreadsheet_url'):
+                st.markdown(f"**📊 Spreadsheet:** [Open in Google Sheets]({stats['spreadsheet_url']})")
+        else:
+            st.error("❌ Not connected to Google Sheets")
+            show_setup_instructions()
 
-# Main application entry point
 if __name__ == "__main__":
     main_app()
