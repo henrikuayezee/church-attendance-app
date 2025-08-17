@@ -6,6 +6,8 @@ from datetime import date, datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import time
+from functools import wraps
 
 # Page configuration
 st.set_page_config(
@@ -52,13 +54,67 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def rate_limit(delay=1.0):
+    """Decorator to add rate limiting to API calls"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            # Check last call time
+            current_time = time.time()
+            if hasattr(self, '_last_api_call'):
+                time_since_last = current_time - self._last_api_call
+                if time_since_last < delay:
+                    time.sleep(delay - time_since_last)
+            
+            try:
+                result = func(self, *args, **kwargs)
+                self._last_api_call = time.time()
+                return result
+            except gspread.exceptions.APIError as e:
+                if "Quota exceeded" in str(e):
+                    st.warning("⏳ API rate limit reached. Waiting 60 seconds...")
+                    time.sleep(60)
+                    result = func(self, *args, **kwargs)
+                    self._last_api_call = time.time()
+                    return result
+                else:
+                    raise e
+        return wrapper
+    return decorator
+
 class GoogleSheetsManager:
     def __init__(self):
         self.client = None
         self.spreadsheet = None
         self.members_sheet = None
         self.attendance_sheet = None
+        self._last_api_call = 0
+        self._cache = {}
+        self._cache_timeout = 300  # 5 minutes
         self.initialize_connection()
+    
+    def _get_cache_key(self, method_name, *args):
+        """Generate cache key for method calls"""
+        return f"{method_name}_{hash(str(args))}"
+    
+    def _is_cache_valid(self, cache_key):
+        """Check if cached data is still valid"""
+        if cache_key not in self._cache:
+            return False
+        
+        cached_time = self._cache[cache_key].get('timestamp', 0)
+        return (time.time() - cached_time) < self._cache_timeout
+    
+    def _set_cache(self, cache_key, data):
+        """Set data in cache with timestamp"""
+        self._cache[cache_key] = {
+            'data': data,
+            'timestamp': time.time()
+        }
+    
+    def _get_cache(self, cache_key):
+        """Get data from cache"""
+        return self._cache[cache_key]['data']
     
     def initialize_connection(self):
         """Initialize Google Sheets connection"""
@@ -103,6 +159,7 @@ class GoogleSheetsManager:
             """)
             self.client = None
     
+    @rate_limit(1.5)  # 1.5 second delay between API calls
     def setup_worksheets(self):
         """Setup required worksheets"""
         try:
@@ -114,6 +171,7 @@ class GoogleSheetsManager:
                     title="Members", rows=1000, cols=10
                 )
                 # Add headers
+                time.sleep(1)  # Additional delay for worksheet creation
                 self.members_sheet.update('A1:E1', [[
                     'Membership Number', 'Full Name', 'Group', 'Email', 'Phone'
                 ]])
@@ -126,6 +184,7 @@ class GoogleSheetsManager:
                     title="Attendance", rows=10000, cols=10
                 )
                 # Add headers
+                time.sleep(1)  # Additional delay for worksheet creation
                 self.attendance_sheet.update('A1:F1', [[
                     'Date', 'Membership Number', 'Full Name', 'Group', 'Status', 'Timestamp'
                 ]])
@@ -137,10 +196,17 @@ class GoogleSheetsManager:
         """Check if Google Sheets is connected"""
         return self.client is not None and self.spreadsheet is not None
     
-    def load_members(self):
-        """Load members from Google Sheets"""
+    @rate_limit(1.0)
+    def load_members(self, use_cache=True):
+        """Load members from Google Sheets with caching"""
         if not self.is_connected():
             return pd.DataFrame()
+        
+        cache_key = self._get_cache_key("load_members")
+        
+        # Use cache if valid and requested
+        if use_cache and self._is_cache_valid(cache_key):
+            return self._get_cache(cache_key)
         
         try:
             with st.spinner("Loading members from Google Sheets..."):
@@ -151,11 +217,15 @@ class GoogleSheetsManager:
                 if not df.empty:
                     df = df[df['Membership Number'].astype(str).str.strip() != '']
                 
+                # Cache the result
+                self._set_cache(cache_key, df)
                 return df
+                
         except Exception as e:
             st.error(f"Error loading members: {str(e)}")
             return pd.DataFrame()
     
+    @rate_limit(2.0)  # Longer delay for write operations
     def save_members(self, df):
         """Save members to Google Sheets"""
         if not self.is_connected():
@@ -165,12 +235,14 @@ class GoogleSheetsManager:
             with st.spinner("Saving members to Google Sheets..."):
                 # Clear existing data (except headers)
                 self.members_sheet.clear()
+                time.sleep(1)  # Wait after clear
                 
                 # Add headers
                 headers = ['Membership Number', 'Full Name', 'Group', 'Email', 'Phone']
                 self.members_sheet.update('A1:E1', [headers])
+                time.sleep(1)  # Wait after header update
                 
-                # Prepare data
+                # Prepare data in batches
                 data = []
                 for _, row in df.iterrows():
                     data.append([
@@ -181,21 +253,40 @@ class GoogleSheetsManager:
                         str(row.get('Phone', ''))
                     ])
                 
-                # Update sheet
+                # Update sheet in batches of 100 rows
                 if data:
-                    range_name = f'A2:E{len(data) + 1}'
-                    self.members_sheet.update(range_name, data)
+                    batch_size = 100
+                    for i in range(0, len(data), batch_size):
+                        batch = data[i:i + batch_size]
+                        start_row = i + 2
+                        end_row = start_row + len(batch) - 1
+                        range_name = f'A{start_row}:E{end_row}'
+                        
+                        self.members_sheet.update(range_name, batch)
+                        
+                        # Add delay between batches
+                        if i + batch_size < len(data):
+                            time.sleep(2)
                 
+                # Clear cache
+                self._cache.clear()
                 return True
                 
         except Exception as e:
             st.error(f"Error saving members: {str(e)}")
             return False
     
-    def load_attendance(self):
-        """Load attendance from Google Sheets"""
+    @rate_limit(1.0)
+    def load_attendance(self, use_cache=True):
+        """Load attendance from Google Sheets with caching"""
         if not self.is_connected():
             return pd.DataFrame()
+        
+        cache_key = self._get_cache_key("load_attendance")
+        
+        # Use cache if valid and requested
+        if use_cache and self._is_cache_valid(cache_key):
+            return self._get_cache(cache_key)
         
         try:
             with st.spinner("Loading attendance from Google Sheets..."):
@@ -206,11 +297,15 @@ class GoogleSheetsManager:
                 if not df.empty:
                     df = df[df['Date'].astype(str).str.strip() != '']
                 
+                # Cache the result
+                self._set_cache(cache_key, df)
                 return df
+                
         except Exception as e:
             st.error(f"Error loading attendance: {str(e)}")
             return pd.DataFrame()
     
+    @rate_limit(2.0)
     def save_attendance(self, df, attendance_date, group_name):
         """Save attendance records to Google Sheets"""
         if not self.is_connected():
@@ -218,8 +313,8 @@ class GoogleSheetsManager:
         
         try:
             with st.spinner("Saving attendance to Google Sheets..."):
-                # Load existing data
-                existing_df = self.load_attendance()
+                # Load existing data (without cache for accuracy)
+                existing_df = self.load_attendance(use_cache=False)
                 
                 # Remove existing records for this date/group
                 if not existing_df.empty:
@@ -250,17 +345,32 @@ class GoogleSheetsManager:
                 
                 # Clear and update sheet
                 self.attendance_sheet.clear()
+                time.sleep(1)  # Wait after clear
                 
                 # Add headers
                 headers = ['Date', 'Membership Number', 'Full Name', 'Group', 'Status', 'Timestamp']
                 self.attendance_sheet.update('A1:F1', [headers])
+                time.sleep(1)  # Wait after header update
                 
-                # Add data
+                # Add data in batches
                 if not updated_df.empty:
                     data = updated_df.values.tolist()
-                    range_name = f'A2:F{len(data) + 1}'
-                    self.attendance_sheet.update(range_name, data)
+                    batch_size = 100
+                    
+                    for i in range(0, len(data), batch_size):
+                        batch = data[i:i + batch_size]
+                        start_row = i + 2
+                        end_row = start_row + len(batch) - 1
+                        range_name = f'A{start_row}:F{end_row}'
+                        
+                        self.attendance_sheet.update(range_name, batch)
+                        
+                        # Add delay between batches
+                        if i + batch_size < len(data):
+                            time.sleep(2)
                 
+                # Clear cache
+                self._cache.clear()
                 return True
                 
         except Exception as e:
@@ -298,7 +408,7 @@ class GoogleSheetsManager:
         except:
             return {}
 
-# Initialize Google Sheets manager
+# Initialize Google Sheets manager with better caching
 @st.cache_resource
 def get_sheets_manager():
     return GoogleSheetsManager()
@@ -327,9 +437,28 @@ def show_setup_instructions():
         
         ### 4. Configure Streamlit Secrets
         Create `.streamlit/secrets.toml` file and paste your JSON credentials.
+        
+        ### 5. Rate Limiting Information
+        - The app now includes automatic rate limiting
+        - API calls are delayed by 1-2 seconds to prevent quota issues
+        - Data is cached for 5 minutes to reduce API calls
+        - Batch operations are used for large data updates
         """)
 
 sheets = get_sheets_manager()
+
+# Add a cache clear button in the sidebar
+def add_cache_controls():
+    """Add cache control buttons to sidebar"""
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔄 Cache Controls")
+    
+    if st.sidebar.button("🗑️ Clear Cache"):
+        sheets._cache.clear()
+        st.sidebar.success("Cache cleared!")
+    
+    cache_info = f"📝 Cached items: {len(sheets._cache)}"
+    st.sidebar.info(cache_info)
 
 def main_app():
     # Check connection status
@@ -359,6 +488,9 @@ def main_app():
         ],
         index=0
     )
+    
+    # Add cache controls
+    add_cache_controls()
     
     # Sidebar stats
     st.sidebar.markdown("---")
@@ -393,7 +525,7 @@ def main_app():
 def dashboard_home():
     st.markdown('<div class="main-header">🏠 Dashboard Overview</div>', unsafe_allow_html=True)
     
-    # Load data from Google Sheets
+    # Load data from Google Sheets with caching
     df = sheets.load_attendance()
     members_df = sheets.load_members()
     
@@ -764,6 +896,27 @@ def admin_page():
             
             if stats.get('spreadsheet_url'):
                 st.markdown(f"**📊 Spreadsheet:** [Open in Google Sheets]({stats['spreadsheet_url']})")
+                
+            # Rate limiting status
+            st.markdown("### ⚙️ Rate Limiting Status")
+            
+            current_time = time.time()
+            last_call = getattr(sheets, '_last_api_call', 0)
+            time_since_last = current_time - last_call
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("⏱️ Seconds since last API call", f"{time_since_last:.1f}")
+            with col2:
+                cache_items = len(sheets._cache)
+                st.metric("💾 Cached data items", cache_items)
+            
+            # Manual refresh button
+            if st.button("🔄 Force Refresh Data", help="Clear cache and reload all data"):
+                sheets._cache.clear()
+                st.success("Cache cleared! Data will be refreshed on next load.")
+                st.rerun()
+                
         else:
             st.error("❌ Not connected to Google Sheets")
             show_setup_instructions()
